@@ -11,6 +11,9 @@
 #define HASH_SIZE 32
 #define MAX_CHUNKS 100
 
+#define TAG_REQUEST 1
+#define TAG_CLIENT_DONE 2
+
 struct Tracker files;
 
 void create_mpi_piece_type(MPI_Datatype *mpi_type) {
@@ -63,21 +66,44 @@ void *download_thread_func(void *arg)
 {
     int rank = *(int*) arg;
 
+    int flag;
     MPI_Datatype mpi_type;
     create_mpi_trackerfiles_type(&mpi_type);
-    int fisieretotal = 0;
 
     struct TrackerFiles data;
+    printf("sunt %d fisiere dorite\n", files.nr_fisiere_dorite);
     for (int filenr = 0; filenr < files.nr_fisiere_dorite; filenr++){
         MPI_Request requestfile;
+        MPI_Status status;
 
         // Trimitem numele fișierului către tracker
-        MPI_Isend(files.fisiere_dorite[filenr], MAX_FILENAME + 1, MPI_CHAR, 0, TAG_REQUEST_FILE_INFO, MPI_COMM_WORLD, &requestfile);
-        MPI_Irecv(&data, 1, mpi_type, 0, 0, MPI_COMM_WORLD, &requestfile);
+        MPI_Isend(files.fisiere_dorite[filenr], MAX_FILENAME + 1, MPI_CHAR, 0, TAG_REQUEST, MPI_COMM_WORLD, &requestfile);
+        printf("client %d a trimis request\n", rank);
+        // MPI_Test(&requestfile, &flag, &status);
+ 
+        // if (flag) {
+        //     //printf("[P0] The send operation is over\n");
+        // } else {
+        //     //printf("[P0] The send operation is not over yet\n");
+        //     MPI_Wait(&requestfile, &status);
+        // }
 
-        // Așteptăm finalizarea transferului non-blocant
-        MPI_Wait(&requestfile, MPI_STATUS_IGNORE);
-        printf("Rank %d a primit structura de la Rank 0.\n", rank);
+
+        MPI_Irecv(&data, 1, mpi_type, 0, TAG_REQUEST, MPI_COMM_WORLD, &requestfile);
+        printf("client %d trebuie sa isi primeasca seeds/peers", rank);
+        //MPI_Wait(&request, MPI_STATUS_IGNORE);
+        MPI_Test(&requestfile, &flag, MPI_STATUS_IGNORE);
+ 
+        if (flag) {
+            //printf("[P1] The receive operation is over\n");
+        } else {
+            //printf("[P1] The receive operation is not over yet\n");
+            MPI_Wait(&requestfile, MPI_STATUS_IGNORE);
+        }
+
+        // // Așteptăm finalizarea transferului non-blocant
+        //MPI_Wait(&requestfile, MPI_STATUS_IGNORE);
+        // //printf("Rank %d a primit structura de la Rank 0.\n", rank);
 
         printf("Rank %d a primit structura:\n", rank);
         printf("Filename: %s\n", data.info.filename);
@@ -88,29 +114,44 @@ void *download_thread_func(void *arg)
         }
         
     }
-    if (rank == 1) {
-        // Rank 1 trimite o cerere (non-blocantă)
-        MPI_Request request;
-        MPI_Isend("Request", 7, MPI_CHAR, 0, 0, MPI_COMM_WORLD, &request);
-        printf("Rank %d a trimis cererea către Rank 0.\n", rank);
-        
-        MPI_Irecv(&data, 1, mpi_type, 0, 0, MPI_COMM_WORLD, &request);
 
-        // Așteptăm finalizarea transferului non-blocant
-        MPI_Wait(&request, MPI_STATUS_IGNORE);
-        printf("Rank %d a primit structura de la Rank 0.\n", rank);
-
-        // Afișăm datele primite
-        printf("Rank %d a primit structura:\n", rank);
-        //for (int k = 0; k < fisieretotal; k++){
-            printf("Filename: %s\n", data.info.filename);
-            printf("Nr segmente: %d\n", data.info.nr_segmente);
-            for (int i = 0; i < data.info.nr_segmente; i++) {
-                printf("Piece %d - Index: %d, Hash: %s, Descarcat: %d\n", i,
-                data.info.pieces[i].index, data.info.pieces[i].hash, data.info.pieces[i].e_descarcat);
-            }
-        //}
+    MPI_Request request_done;
+    MPI_Status status_done;
+    MPI_Isend("ACK", 4, MPI_CHAR, 0, TAG_CLIENT_DONE, MPI_COMM_WORLD, &request_done);
+    //MPI_Wait(&request_done, MPI_STATUS_IGNORE);
+    MPI_Test(&request_done, &flag, &status_done);
+ 
+    if (flag) {
+        printf("[P1] The receive operation is over\n");
+    } else {
+        printf("[P1] The receive operation is not over yet\n");
+        MPI_Wait(&request_done, &status_done);
     }
+    // if (rank == 1) {
+    //     // Rank 1 trimite o cerere (non-blocantă)
+    //     MPI_Request request;
+    //     MPI_Isend("Request", 7, MPI_CHAR, 0, 0, MPI_COMM_WORLD, &request);
+    //     printf("Rank %d a trimis cererea către Rank 0.\n", rank);
+        
+    //     MPI_Irecv(&data, 1, mpi_type, 0, 0, MPI_COMM_WORLD, &request);
+
+    //     // Așteptăm finalizarea transferului non-blocant
+    //     MPI_Wait(&request, MPI_STATUS_IGNORE);
+    //     printf("Rank %d a primit structura de la Rank 0.\n", rank);
+
+    //     // Afișăm datele primite
+    //     printf("Rank %d a primit structura:\n", rank);
+    //     //for (int k = 0; k < fisieretotal; k++){
+    //         printf("Filename: %s\n", data.info.filename);
+    //         printf("Nr segmente: %d\n", data.info.nr_segmente);
+    //         for (int i = 0; i < data.info.nr_segmente; i++) {
+    //             printf("Piece %d - Index: %d, Hash: %s, Descarcat: %d\n", i,
+    //             data.info.pieces[i].index, data.info.pieces[i].hash, data.info.pieces[i].e_descarcat);
+    //         }
+    //     //}
+    // }
+
+    
 
     return NULL;
 }
@@ -127,6 +168,7 @@ void *upload_thread_func(void *arg)
 void tracker(int numtasks, int rank) {
     char hash[32];
     int nrsegm, fisiere;
+    int clienti_gata = 0;
     struct TrackerFiles trackerfiles[MAX_FILES];
     int fisieretotal = 0;
     for (int i = 0; i < MAX_FILES; i++)
@@ -182,14 +224,53 @@ void tracker(int numtasks, int rank) {
     MPI_Datatype mpi_type;
     create_mpi_trackerfiles_type(&mpi_type);
 
-    MPI_Request request;
     for (int i = 1; i < numtasks; i++) {
         MPI_Send("ACK", 4, MPI_CHAR, i, 0, MPI_COMM_WORLD);
-        printf("Tracker: Sent ACK to client %d.\n", i);
+        //printf("Tracker: Sent ACK to client %d.\n", i);
     }
 
-    MPI_Isend(&trackerfiles, 1, mpi_type, 1, 0, MPI_COMM_WORLD, &request);
-    printf("Rank %d a trimis structura către Rank 1.\n", rank);
+    while (clienti_gata < numtasks - 1){
+        char mesaj[256];
+        int r, flag, source;
+        MPI_Status status;
+        MPI_Request request;
+        MPI_Irecv(mesaj, 256, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &request); //TODO modif tag
+        printf("tracker-ul a primit request de la %d\n", r);
+        //MPI_Wait(&request, &status);
+        MPI_Test(&request, &flag, &status);
+ 
+        if (flag) {
+            printf("[P0] The send operation is over\n");
+            } else {
+            printf("[P0] The send operation is not over yet\n");
+            MPI_Wait(&request, &status);
+        }
+        source = status.MPI_SOURCE;
+        if (status.MPI_TAG == TAG_REQUEST){
+            int nr = 0;
+            for (nr = 0; nr < MAX_FILES; nr++){
+                if (strcmp(mesaj, trackerfiles[nr].info.filename) == 0){
+                    break;
+                }
+            }
+            MPI_Isend(&trackerfiles[nr], 1, mpi_type, source, TAG_REQUEST, MPI_COMM_WORLD, &request);
+            // MPI_Test(&request, &flag, &status);
+ 
+            // if (flag) {
+            //     printf("[P0] The send operation is over\n");
+            // } else {
+            //     printf("[P0] The send operation is not over yet\n");
+            //     MPI_Wait(&request, &status);
+            // }
+
+        }
+        else if (status.MPI_TAG == TAG_CLIENT_DONE){
+            clienti_gata++;
+        }
+
+    }
+    
+    //printf("Rank %d a trimis structura către Rank 1.\n", rank);
     
 }
 
