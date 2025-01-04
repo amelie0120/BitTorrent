@@ -25,11 +25,12 @@ struct Tracker {
     int nr_fisiere_descarcate;
     int nr_fisiere_dorite;
     struct FileInfo fisiere[MAX_FILES];
-    char fisiere_dorite[MAX_FILES][MAX_FILENAME];
+    struct FileInfo fisiere_dorite[MAX_FILES];
 };
 
 struct TrackerFiles {
     //char filename[MAX_FILENAME];
+    int nr_seeds_peers;
     int *seeds_peers;
     struct FileInfo info;
 };
