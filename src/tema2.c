@@ -77,11 +77,8 @@ void *download_thread_func(void *arg)
 {
     int rank = *(int*) arg;
 
-    int flag;
     MPI_Datatype mpi_type;
     create_mpi_trackerfiles_type(&mpi_type);
-
-    int *segmente_avute = calloc(MAX_CHUNKS, sizeof(int));
 
     struct TrackerFiles data;
     data.seeds_peers = calloc((numtasks + 1), sizeof(int));
@@ -102,7 +99,6 @@ void *download_thread_func(void *arg)
 
         // printf("rank %d urmeaza sa descarce fisierul %s\n", rank, files.fisiere_dorite[filenr].filename);
         MPI_Request requestfile, requestsegm, requestsegm1, requestbusy, requestbusy1;
-        MPI_Status status;
 
         // Trimitem numele fișierului către tracker
         MPI_Isend(files.fisiere_dorite[filenr].filename, MAX_FILENAME + 1, MPI_CHAR, 0, TAG_REQUEST, MPI_COMM_WORLD, &requestfile);
@@ -118,11 +114,9 @@ void *download_thread_func(void *arg)
         MPI_Request requestfile1;
         int *seeds_peers = calloc((numtasks + 1), sizeof(int));
         MPI_Irecv(seeds_peers, numtasks + 1, MPI_INT, 0, TAG_REQUEST, MPI_COMM_WORLD, &requestfile1);
-        // printf("client %d trebuie sa isi primeasca seeds/peers pentru %s\n", rank, files.fisiere_dorite[filenr].filename);
         MPI_Wait(&requestfile1, MPI_STATUS_IGNORE);
 
         printf("fisierul %s are %d segmente:\n", files.fisiere_dorite[filenr].filename, data.info.nr_segmente);
-        //printf("fisierul %s are %d seeders:\n", files.fisiere_dorite[filenr].filename, data.nr_seeds_peers);
 
         files.fisiere_dorite[filenr].nr_segmente = data.info.nr_segmente;
         
@@ -132,8 +126,6 @@ void *download_thread_func(void *arg)
             files.fisiere_dorite[filenr].pieces[i].index = i;
         }
         
-        int *segmentefrecv = calloc(data.info.nr_segmente, sizeof(int));
-        int segmente[MAX_CHUNKS], flag;
 
         // if (rank == 1)
         for (int segment = 0; segment < data.info.nr_segmente; segment++){
@@ -172,7 +164,7 @@ void *download_thread_func(void *arg)
                     // printf("rank %d verifica daca poate trimite la client %d\n", rank, i);
                     if (i != rank && seeds_peers[i] == 1){
                         // printf("rank %d veri %d\n", rank, i);
-                        int err = MPI_Isend("ai hash?", 9, MPI_CHAR, i, TAG_UPLOAD, MPI_COMM_WORLD, &requestsegm);
+                        MPI_Isend("ai hash?", 9, MPI_CHAR, i, TAG_UPLOAD, MPI_COMM_WORLD, &requestsegm);
                         // printf("a trimis ai hash?\n");
                         MPI_Wait(&requestsegm, MPI_STATUS_IGNORE);
                         // if (err != MPI_SUCCESS) {
@@ -195,16 +187,16 @@ void *download_thread_func(void *arg)
                             MPI_Wait(&requestbusy1, MPI_STATUS_IGNORE);
                             // if (strncmp(files.fisiere_dorite[filenr].filename, "file1", 5) == 0)
                             // printf("%d e busy %d\n", i, busy);
-                            if ((rank == 5 || rank == 3) && strncmp(files.fisiere_dorite[filenr].filename, "file4", 5) == 0)
-                            printf("client %d - busy %d pt fisier %s, \n",i, busy, files.fisiere_dorite[filenr].filename);
+                            // if ((rank == 5 || rank == 3) && strncmp(files.fisiere_dorite[filenr].filename, "file4", 5) == 0)
+                            // printf("client %d - busy %d pt fisier %s, \n",i, busy, files.fisiere_dorite[filenr].filename);
                             if (busy < less_busy){
                                 less_busy = busy;
                                 dest = i;
                             }
                         }
                         else{
-                            if ((rank == 5 || rank == 3) && strncmp(files.fisiere_dorite[filenr].filename, "file4", 5) == 0)
-                            printf("client %d nu are segm %d din fisierul %s\n",i, segment, files.fisiere_dorite[filenr].filename);
+                            // if ((rank == 5 || rank == 3) && strncmp(files.fisiere_dorite[filenr].filename, "file4", 5) == 0)
+                            // printf("client %d nu are segm %d din fisierul %s\n",i, segment, files.fisiere_dorite[filenr].filename);
                         }
 
                         
@@ -218,11 +210,12 @@ void *download_thread_func(void *arg)
             MPI_Request requestdownload;
             MPI_Irecv(rasp, 256, MPI_CHAR, dest, TAG_DOWNLOAD_REPLY, MPI_COMM_WORLD, &requestdownload);
             MPI_Wait(&requestdownload, MPI_STATUS_IGNORE);
-            if ((rank == 5 || rank == 3) && strncmp(files.fisiere_dorite[filenr].filename, "file4", 5) == 0)
-            printf("rank %d, descarca din %s segment %d de la client %d\n", rank, files.fisiere_dorite[filenr].filename, segment, dest);
+            // if ((rank == 5 || rank == 3) && strncmp(files.fisiere_dorite[filenr].filename, "file4", 5) == 0)
+            // printf("rank %d, descarca din %s segment %d de la client %d\n", rank, files.fisiere_dorite[filenr].filename, segment, dest);
             if (strncmp(rasp, "ACK", 3) == 0){
                 files.fisiere_dorite[filenr].pieces[segment].e_descarcat = 1;
-                fprintf(file, "%s\n", files.fisiere_dorite[filenr].pieces[segment].hash);
+                fprintf(file, "%.*s\n", HASH_SIZE, files.fisiere_dorite[filenr].pieces[segment].hash);
+                // "%.*s", num_chars, string
             }
             
         }
@@ -231,7 +224,6 @@ void *download_thread_func(void *arg)
     }
 
     MPI_Request request_done;
-    MPI_Status status_done;
     MPI_Isend("done", 4, MPI_CHAR, 0, TAG_CLIENT_DONE, MPI_COMM_WORLD, &request_done);
     // printf("client %d trimite download done lui insusi\n", rank);
     MPI_Wait(&request_done, MPI_STATUS_IGNORE);    
@@ -247,7 +239,7 @@ void *upload_thread_func(void *arg)
     // for (int contor = 1; contor <= 3; contor++){
     while(1){
         char mesaj[256];
-        int r, flag, source;
+        int source;
         MPI_Status status;
         MPI_Request request;
         
@@ -277,7 +269,7 @@ void *upload_thread_func(void *arg)
             
             char filename[MAX_FILENAME];
             
-            int filenr = 0, segm = 0, segmente[MAX_CHUNKS], gasit = 0;
+            int filenr = 0, segm = 0, gasit = 0;
             
             for (filenr = 0; filenr < files.nr_fisiere_descarcate; filenr++){
                 
@@ -324,11 +316,11 @@ void *upload_thread_func(void *arg)
         }
         else{ //e de download
             busy++;
-            char hash[HASH_SIZE + 1], filename[MAX_FILENAME];
+            char hash[HASH_SIZE + 1];
             MPI_Request requestsend;
             strncpy(hash, mesaj, HASH_SIZE);
 
-            int filenr = 0, segm = 0, segmente[MAX_CHUNKS], gasit = 0;
+            int filenr = 0, segm = 0, gasit = 0;
             
             for (filenr = 0; filenr < files.nr_fisiere_descarcate; filenr++){
                 
@@ -365,7 +357,6 @@ void *upload_thread_func(void *arg)
 }
 
 void tracker(int numtasks, int rank) {
-    char hash[32];
     int nrsegm, fisiere;
     int clienti_gata = 0;
     struct TrackerFiles trackerfiles[MAX_FILES];
@@ -436,7 +427,7 @@ void tracker(int numtasks, int rank) {
 
     while (clienti_gata < numtasks - 1){
         char mesaj[256];
-        int r, flag, source;
+        int flag, source;
         MPI_Status status;
         MPI_Request request, request1;
         // clienti_gata++;
